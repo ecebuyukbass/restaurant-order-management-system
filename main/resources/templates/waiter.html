@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Garson Paneli</title>
+    <link rel="stylesheet" th:href="@{/style.css}">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .order-item-card {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .order-item-card .item-info {
+            flex-grow: 1;
+        }
+        .order-item-card .remove-btn {
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body class="container mt-5">
+
+<h1 class="text-center text-primary mb-4">🍝 Garson Paneli</h1>
+
+<div class="row">
+    <div class="col-md-12 d-flex justify-content-between mb-4" id="table-buttons-container">
+        <div th:each="i : ${#numbers.sequence(1, 5)}">
+            <button type="button" class="btn btn-outline-dark me-2 table-button" th:data-table-number="${i}">
+                Masa [[${i}]]
+            </button>
+        </div>
+    </div>
+</div>
+
+<div id="menu-order-section" style="display:none;">
+    <div class="row">
+        <div class="col-md-6">
+            <h4 class="mt-4">Menü</h4>
+            <div th:each="product : ${products}" class="card p-2 mb-2">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="item-info">
+                        <b th:text="${product.name}">Ürün Adı</b> -
+                        <span th:text="${product.price} + '₺'">Fiyat</span>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-success add-to-order-button"
+                            th:data-product-id="${product.id}"
+                            disabled>➕ Ekle</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <h3>Sipariş Özeti (<span id="active-table-display">Masa seçilmedi</span>)</h3>
+            <div id="order-summary-content" class="mb-3">
+            </div>
+            <div class="mt-3 d-flex gap-2">
+                <button type="button" id="save-order-button" class="btn btn-success w-100" style="display: none;">Siparişi Kaydet</button>
+                <button type="button" id="reset-order-button" class="btn btn-warning w-100" style="display: none;">Hesabı Ödendi (Yerel)</button>
+            </div>
+            <div class="mt-2 d-flex gap-2">
+                <button type="button" id="complete-order-button" class="btn btn-primary w-100" style="display: none;">Siparişi Tamamla</button>
+                <button type="button" id="delete-order-button" class="btn btn-danger w-100" style="display: none;">Hesabı Sil</button>
+            </div>
+        </div>
+    </div>
+    <div class="text-center mt-3">
+        <button type="button" id="back-to-tables-button" class="btn btn-secondary">← Masalara Dön</button>
+    </div>
+</div>
+
+<script th:inline="javascript">
+    // thymleaften gelen tüm ürünleri global değişkene atamaya yarar
+    window.allProducts = /*[[${products}]]*/ [];
+</script>
+
+<script>
+    // dom element refleri
+    const menuOrderSection = document.getElementById('menu-order-section');
+    const activeTableDisplay = document.getElementById('active-table-display');
+    const orderSummaryContent = document.getElementById('order-summary-content');
+    const backToTablesButton = document.getElementById('back-to-tables-button');
+    const saveOrderButton = document.getElementById('save-order-button');
+    const resetOrderButton = document.getElementById('reset-order-button');
+    const completeOrderButton = document.getElementById('complete-order-button');
+    const deleteOrderButton = document.getElementById('delete-order-button');
+    const addToOrderButtons = document.querySelectorAll('.add-to-order-button');
+    const tableButtons = document.querySelectorAll('.table-button');
+
+    let currentTable = null;
+    let ordersByTable = {};
+    let currentOrderId = {};
+
+    document.addEventListener('DOMContentLoaded', () => {
+        // masa butonlarına olay dinleyicileri ekleme (html'deki onclick yerine burası kullanılr)
+        tableButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                const tableNumber = this.dataset.tableNumber;
+                handleTableSelection(tableNumber);
+            });
+        });
+
+        backToTablesButton.addEventListener('click', handleBackToTables);
+        saveOrderButton.addEventListener('click', handleSaveOrder);
+        resetOrderButton.addEventListener('click', handleResetOrder);
+        completeOrderButton.addEventListener('click', handleCompleteOrder);
+        deleteOrderButton.addEventListener('click', handleDeleteOrder);
+
+        addToOrderButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                const productId = this.dataset.productId;
+                handleAddProductToLocalOrder(productId);
+            });
+            button.disabled = true;
+        });
+
+        console.log(" Tüm DOM öğeleri yüklendi ve olay dinleyicileri eklendi");
+        console.log("Mevcut ürünler (window.allProducts):", window.allProducts);
+    });
+
+    /**
+     * Masa seçildiğinde çağrılır. Menüyü gösterir, "Ekle" butonlarını etkinleştirir
+     * ve o masanın mevcut siparişini (varsa) API'den çeker.
+     * @param {string} tableNumber Seçilen masa numarası
+     */
+    function handleTableSelection(tableNumber) {
+        currentTable = tableNumber;
+        menuOrderSection.style.display = "block";
+        activeTableDisplay.innerText = `Masa ${tableNumber}`;
+
+        addToOrderButtons.forEach(btn => btn.disabled = false);
+
+        ordersByTable[currentTable] = [];
+        currentOrderId[currentTable] = null;
+        renderOrderSummary();
+        updateActionButtonsVisibility();
+
+        fetch(`/api/orders/table/${tableNumber}`)
+            .then(response => {
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        console.log(`Masa ${tableNumber} için aktif sipariş bulunamadı (404). Yeni sipariş oluşturulabilir.`);
+                        return Promise.reject("NO_ACTIVE_ORDER");
+                    }
+                    return response.text().then(text => { throw new Error(`API hatası (${response.status}): ${text}`); });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data && data.id) {
+                    currentOrderId[currentTable] = data.id;
+                    ordersByTable[currentTable] = [];
+                    data.orderItems.forEach(item => {
+                        const product = window.allProducts.find(p => String(p.id) === String(item.product.id));
+                        if (product) {
+                            for (let i = 0; i < item.quantity; i++) {
+                                ordersByTable[currentTable].push(product);
+                            }
+                        }
+                    });
+                    console.log(`Masa ${tableNumber} için mevcut sipariş yüklendi. ID: ${data.id}`);
+                }
+            })
+            .catch(error => {
+                if (error.message !== "NO_ACTIVE_ORDER") {
+                    console.error("Mecut sipariş yüklenirken hata:", error);
+                    alert("mevcut sipariş yüklenirken bir sorun oluştu: " + error.message);
+                }
+            })
+            .finally(() => {
+                renderOrderSummary();
+                updateActionButtonsVisibility();
+            });
+    }
+    function handleBackToTables() {
+        menuOrderSection.style.display = "none";
+        currentTable = null;
+        activeTableDisplay.innerText = "Masa seçilmedi";
+        orderSummaryContent.innerHTML = "";
+        addToOrderButtons.forEach(btn => btn.disabled = true);
+        updateActionButtonsVisibility();
+        console.log("Masalara dönüldü.");
+    }
+
+    /**
+     * @param {string}
+
+     */
+    function handleAddProductToLocalOrder(productId) {
+        if (!currentTable) {
+            alert("Lütfen önce bir masa seçin.");
+            return;
+        }
+
+        const product = window.allProducts.find(p => String(p.id) === String(productId));
+        if (!product) {
+            console.error("Ürün bulunamadı, ID:", productId);
+            return alert("Ürün bulunamadı!");
+        }
+
+        if (!ordersByTable[currentTable]) {
+            ordersByTable[currentTable] = [];
+        }
+
+        ordersByTable[currentTable].push(product);
+        renderOrderSummary();
+        updateActionButtonsVisibility();
+        console.log(`Ürün ID ${productId} Masa ${currentTable} sepetine eklendi.`);
+    }
+    function renderOrderSummary() {
+        orderSummaryContent.innerHTML = "";
+        let total = 0;
+        const currentTableOrders = ordersByTable[currentTable] || [];
+
+        const groupedItemsDisplay = {};
+        currentTableOrders.forEach(product => {
+            if (groupedItemsDisplay[product.id]) {
+                groupedItemsDisplay[product.id].quantity++;
+            } else {
+                groupedItemsDisplay[product.id] = { ...product, quantity: 1 };
+            }
+        });
+
+        if (currentTableOrders.length === 0) {
+            orderSummaryContent.innerHTML = "<div class='text-muted'>Henüz ürün eklenmedi.</div>";
+        } else {
+            Object.values(groupedItemsDisplay).forEach(item => {
+                total += Number(item.price) * item.quantity;
+                orderSummaryContent.innerHTML += `
+                    <div class="card p-2 mb-2 bg-light order-item-card">
+                        <span class="item-info">${item.name} (${item.quantity}x) - ${item.price * item.quantity}₺</span>
+                        <button type="button" class="btn btn-sm btn-danger remove-btn" data-product-id-to-remove="${item.id}">- Sil</button>
+                    </div>
+                `;
+            });
+
+            orderSummaryContent.querySelectorAll('.remove-btn').forEach(button => {
+                button.addEventListener('click', function() {
+                    const productIdToRemove = this.dataset.productIdToRemove;
+                    removeItemFromLocalOrder(productIdToRemove);
+
+                });
+            });
+        }
+        orderSummaryContent.innerHTML += `<div class="mt-3 fw-bold">Toplam: ${total.toFixed(2)} ₺</div>`;
+    }
+
+    /**
+     * @param {string}
+     */
+    function removeItemFromLocalOrder(productIdToRemove) {
+    console.log("🧪 Silme fonksiyonu çalıştı. Silinecek ürün ID:", productIdToRemove);
+
+    if (currentTable && ordersByTable[currentTable]) {
+        console.log("📦 Mevcut sepet içeriği:", ordersByTable[currentTable]);
+
+        const index = ordersByTable[currentTable].findIndex(p =>
+            String(p.id) === String(productIdToRemove)
+        );
+
+        if (index > -1) {
+            ordersByTable[currentTable].splice(index, 1);
+            console.log(` Ürün ID ${productIdToRemove} başarıyla silindi.`);
+
+            renderOrderSummary();
+            updateActionButtonsVisibility();
+        } else {
+            console.warn(`Ürün ID ${productIdToRemove} sepet içinde bulunamadı!`);
+        }
+    } else {
+        console.error(" currentTable tanımsız veya sepet boş.");
+    }
+}
+
+
+
+    function updateActionButtonsVisibility() {
+        const hasLocalOrders = currentTable && ordersByTable[currentTable] && ordersByTable[currentTable].length > 0;
+        const hasApiOrder = currentTable && currentOrderId[currentTable];
+
+        saveOrderButton.style.display = 'none';
+        resetOrderButton.style.display = 'none';
+        completeOrderButton.style.display = 'none';
+        deleteOrderButton.style.display = 'none';
+
+        if (hasApiOrder) {
+            completeOrderButton.style.display = 'block';
+            deleteOrderButton.style.display = 'block';
+        } else if (hasLocalOrders) {
+            saveOrderButton.style.display = 'block';
+            resetOrderButton.style.display = 'block';
+        }
+    }
+
+    async function handleSaveOrder() {
+        const currentTableOrders = ordersByTable[currentTable];
+        if (!currentTableOrders || currentTableOrders.length === 0) {
+            return alert("Kaydedilecek sipariş yok!");
+        }
+
+        const itemCounts = {};
+        currentTableOrders.forEach(product => {
+            if (itemCounts[product.id]) {
+                itemCounts[product.id].quantity++;
+            } else {
+                itemCounts[product.id] = { productId: product.id, quantity: 1 };
+            }
+        });
+
+        const itemsToSend = Object.values(itemCounts);
+
+        const orderData = {
+            tableNumber: String(currentTable),
+            items: itemsToSend
+        };
+
+        try {
+            const response = await fetch('/api/orders', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(orderData)
+            });
+
+            if (!response.ok) {
+                const errorBody = await response.json().catch(() => null) || await response.text().catch(() => 'Bilinmeyen Hata');
+                throw new Error(`Siparişi kaydetme başarısız oldu: ${response.status} - ${typeof errorBody === 'object' ? JSON.stringify(errorBody) : errorBody}`);
+            }
+
+            const savedOrder = await response.json();
+            currentOrderId[currentTable] = savedOrder.id;
+            alert(`sipariş başarıyla kaydedildi siparis id: ${savedOrder.id}`);
+            updateActionButtonsVisibility();
+            console.log("Sipariş başarıyla kaydedildi:", savedOrder);
+
+        } catch (error) {
+            console.error("siparişi kaydederken hata oluştu:", error);
+            alert("siparişi kaydederken bir sorun oluştu: " + error.message);
+        }
+    }
+
+    async function handleCompleteOrder() {
+        if (!currentTable) {
+            return alert("Lütfen önce bir masa seçin.");
+        }
+        const orderIdToComplete = currentOrderId[currentTable];
+        if (!orderIdToComplete) {
+            return alert("Tamamlanacak kaydedilmiş bir sipariş bulunamadı.");
+        }
+
+        if (!confirm(`Masa ${currentTable} için siparişi TAMAMLAMAK istediğinizden emin misiniz?`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/orders/complete/${orderIdToComplete}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+            });
+
+            if (!response.ok) {
+                const errorBody = await response.json().catch(() => null) || await response.text().catch(() => 'Bilinmeyen Hata');
+                throw new Error(`Sipariş tamamlanamadı: ${response.status} - ${typeof errorBody === 'object' ? JSON.stringify(errorBody) : errorBody}`);
+            }
+
+            alert(`Masa ${currentTable} siparişi başarıyla tamamlandı.`);
+            ordersByTable[currentTable] = [];
+            currentOrderId[currentTable] = null;
+            renderOrderSummary();
+            updateActionButtonsVisibility();
+        } catch (error) {
+            console.error("Siparişi tamamlarken hata oluştu:", error);
+            alert("Siparişi tamamlarken bir sorun oluştu: " + error.message);
+        }
+    }
+
+
+    async function handleDeleteOrder() {
+        if (!currentTable) {
+            return alert("Lütfen önce bir masa seçin.");
+        }
+        const orderIdToDelete = currentOrderId[currentTable];
+        if (!orderIdToDelete) {
+            return alert("Silinecek kaydedilmiş bir sipariş bulunamadı.");
+        }
+
+        if (!confirm(`Masa ${currentTable} için siparişi tamamen SİLMEK istediğinizden emin misiniz? Bu işlem geri alınamaz!`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/orders/${orderIdToDelete}`, {
+                method: 'DELETE',
+                headers: {'Content-Type': 'application/json'},
+            });
+
+            if (!response.ok) {
+                const errorBody = await response.json().catch(() => null) || await response.text().catch(() => 'Bilinmeyen Hata');
+                throw new Error(`Sipariş silinemedi: ${response.status} - ${typeof errorBody === 'object' ? JSON.stringify(errorBody) : errorBody}`);
+            }
+
+            alert(`Masa ${currentTable} siparişi başarıyla silindi.`);
+            ordersByTable[currentTable] = [];
+            currentOrderId[currentTable] = null;
+            renderOrderSummary();
+            updateActionButtonsVisibility();
+        } catch (error) {
+            console.error("Siparişi silerken hata oluştu:", error);
+            alert("Siparişi silerken bir sorun oluştu: " + error.message);
+        }
+    }
+
+
+    function handleResetOrder() {
+        if (confirm(`Masa ${currentTable} için hesabı ödenmiş olarak işaretleyip yerel sepeti temizlemek istediğinizden emin misiniz? (API'ye istek gönderilmez)`)) {
+            ordersByTable[currentTable] = [];
+            currentOrderId[currentTable] = null;
+            renderOrderSummary();
+            updateActionButtonsVisibility();
+            alert(`Masa ${currentTable} sepeti yerel olarak temizlendi.`);
+            console.log(`Masa ${currentTable} sepeti temizlendi (Hesap Ödendi).`);
+        }
+    }
+
+     document.getElementById('order-summary-content').addEventListener('click', function(event) {
+      if (event.target && event.target.classList.contains('remove-btn')) {
+          const productIdToRemove = event.target.dataset.productIdToRemove;
+          console.log("Delegation ile Sil'e tıklandı! ID:", productIdToRemove);
+          removeItemFromLocalOrder(productIdToRemove);
+      }
+  });
+</script>
+
+</body>
+</html>

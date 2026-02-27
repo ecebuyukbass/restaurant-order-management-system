@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Ürün Ekle</title>
+
+    <link rel="stylesheet" th:href="@{/style.css}">
+
+</head>
+<body>
+<h1>Admin Paneli - Ürün Ekle</h1>
+
+<form th:action="@{/admin/add}" th:object="${product}" method="post">
+    <label>Ürün Adı:</label><br>
+    <input type="text" th:field="*{name}" required/><br><br>
+
+    <label>Açıklama:</label><br>
+    <input type="text" th:field="*{description}" required/><br><br>
+
+    <label>Fiyat:</label><br>
+    <input type="number" step="0.01" th:field="*{price}" required/><br><br>
+
+    <label>Stok:</label><br>
+    <input type="number" th:field="*{stock}" required/><br><br>
+
+    <label>Mevcut mu:</label>
+    <input type="checkbox" th:field="*{isAvaiable}"/><br><br>
+
+    <button type="submit">Kaydet</button>
+</form>
+
+<br>
+<a href="/menu">Garson Paneline Dön</a>
+</body>
+</html>

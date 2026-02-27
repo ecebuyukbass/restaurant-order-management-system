@@ -1,0 +1,31 @@
+<div class="card p-3 mb-3 shadow-sm" xmlns:th="http://www.w3.org/1999/xhtml">
+    <div class="d-flex align-items-center mb-2">
+        <span style="font-size:1.3em;">📊</span>
+        <strong class="ms-2">Günlük Ciro & Müşteri Sayısı</strong>
+    </div>
+
+    <form class="d-flex gap-2 align-items-center mb-3" method="get" th:action="@{/admin}" style="max-width: 340px;">
+        <input type="date" class="form-control" name="summaryDate" th:value="${selectedDate}" required>
+        <button type="submit" class="btn btn-outline-primary btn-sm">Özet Göster</button>
+    </form>
+
+    <div class="row text-center">
+        <div class="col-6">
+            <div class="card bg-light mb-2 shadow-sm">
+                <div class="card-body p-2">
+                    <div style="font-size: 1.3em; color: #20c997;">₺ <span th:text="${dailyRevenue}">0</span></div>
+                    <div class="small text-muted">Ciro</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-6">
+            <div class="card bg-light mb-2 shadow-sm">
+                <div class="card-body p-2">
+                    <div style="font-size: 1.3em; color: #0d6efd;"><span th:text="${customerCount}">0</span></div>
+                    <div class="small text-muted">Müşteri Sayısı</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
